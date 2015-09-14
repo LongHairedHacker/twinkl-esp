@@ -3,8 +3,10 @@
 
 #include <stdint.h>
 
-static const char wifi_ssid[] = "";
-static const char wifi_password[] = "";
+#include "password.h"
+
+static const char wifi_ssid[] = WIFI_SSID;
+static const char wifi_password[] = WIFI_PASSWORD;
 static const const uint16_t udp_port = 1337;
 
 #endif
