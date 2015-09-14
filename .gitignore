@@ -1,0 +1,8 @@
+*.swp
+*.swo
+*.bak
+
+*.o
+*.bin
+*.a
+*.out
