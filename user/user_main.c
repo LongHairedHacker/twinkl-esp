@@ -15,19 +15,21 @@
 #include "twinkl.h"
 
 
-#define DMX_TASK_PRIO 0
-#define DMX_TASK_QUEUE_LENGTH 1
+#define SPI_TASK_PRIO 0
+#define SPI_TASK_QUEUE_LENGTH 1
+
+#define SPI_CHANNEL_COUNT 3
+
+const uint16_t spi_addresses[SPI_CHANNEL_COUNT] = { 420, 421, 422};
 
 
 struct espconn *udp_server;
 
-const int dmx_tx_pin = 2;
-
 volatile uint8_t update_scheduled = 0;
-os_event_t dmx_task_queue[DMX_TASK_QUEUE_LENGTH];
-os_timer_t dmx_update_timer;
+os_event_t spi_task_queue[SPI_TASK_QUEUE_LENGTH];
+os_timer_t spi_update_timer;
 
-uint8_t dmx_channels[TWINKL_CHANNEL_COUNT];
+uint8_t channels[TWINKL_CHANNEL_COUNT];
 
 
 void ICACHE_FLASH_ATTR udpserver_recv(void *arg, char *data, unsigned short len)
@@ -41,10 +43,10 @@ void ICACHE_FLASH_ATTR udpserver_recv(void *arg, char *data, unsigned short len)
 		twinkl_process_message((struct twinkl_message *) data);
 		INFO("Twinkl message has been processed\n");
 
-/*		if(!update_scheduled) {
+		if(!update_scheduled) {
 			update_scheduled = 1;
-			system_os_post(DMX_TASK_PRIO, 0, 0);	
-		}*/
+			system_os_post(SPI_TASK_PRIO, 0, 0);	
+		}
 	}
 
 }
@@ -69,49 +71,31 @@ void ICACHE_FLASH_ATTR wifiConnectCb(uint8_t status) {
 }
 
 
-void ICACHE_FLASH_ATTR dmx_task(os_event_t *events) {
+void ICACHE_FLASH_ATTR spi_task(os_event_t *events) {
 	int i;
 	update_scheduled = 0;
 	
 	if(twinkl_has_changes()) {
-		INFO("Updating DMX channels\n");
-		twinkl_render(dmx_channels);
+		INFO("Updating channels\n");
+		twinkl_render(channels);
 	}
 
-	//INFO("Sending DMX channels\n");
+	//INFO("Sending channels\n");
 
-	//ets_intr_lock();
-
-	//Space for break
-	PIN_FUNC_SELECT(pin_mux[dmx_tx_pin], FUNC_GPIO2);	
-	gpio_output_set(0, BIT2, BIT2, 0); 
-	os_delay_us(125);
 	
-	//Mark After Break
-	gpio_output_set(BIT2, 0, BIT2, 0);
-	os_delay_us(50);
-
-	//Looks the wrong way round, but reduces jitter somehow
-	//Do not touch.
-	PIN_FUNC_SELECT(pin_mux[dmx_tx_pin], FUNC_U1TXD_BK);	
-	uart_tx_one_char(1, 0);
-	//PIN_FUNC_SELECT(pin_mux[dmx_tx_pin], FUNC_U1TXD_BK);
-
-	for(i = 0; i < TWINKL_CHANNEL_COUNT; i++) {
-		uart_tx_one_char(1, dmx_channels[i]);
+	for(i = 0; i < SPI_CHANNEL_COUNT; i++) {
+		spibang_send_byte(channels[spi_addresses[i]]);	
 	}
 
-	//ets_intr_unlock();
-
-	//INFO("Done sending DMX channels\n");
-	os_timer_arm(&dmx_update_timer, 40, 0);
+	//INFO("Done sending channels\n");
+	os_timer_arm(&spi_update_timer, 250, 0);
 }
 
 
-void dmx_update(void *arg) {
+void spi_update(void *arg) {
 	if(!update_scheduled) {
 		update_scheduled = 1;
-		system_os_post(DMX_TASK_PRIO, 0, 0);
+		system_os_post(SPI_TASK_PRIO, 0, 0);
 	}
 }
 
@@ -120,17 +104,19 @@ void user_init(void) {
 	os_delay_us(1000000);
 
 	update_scheduled = 0;
-	memset(dmx_channels, 127, TWINKL_CHANNEL_COUNT);
+	memset(channels, 0, TWINKL_CHANNEL_COUNT);
 
 	gpio_init();
 
 	twinkl_init();
 
-	os_timer_disarm(&dmx_update_timer);
-	os_timer_setfn(&dmx_update_timer, (os_timer_func_t *)dmx_update, NULL);
-	os_timer_arm(&dmx_update_timer, 40, 0);
+	spibang_init();
 
-	system_os_task(dmx_task, DMX_TASK_PRIO, dmx_task_queue, DMX_TASK_QUEUE_LENGTH);
+	os_timer_disarm(&spi_update_timer);
+	os_timer_setfn(&spi_update_timer, (os_timer_func_t *)spi_update, NULL);
+	os_timer_arm(&spi_update_timer, 250, 0);
+
+	system_os_task(spi_task, SPI_TASK_PRIO, spi_task_queue, SPI_TASK_QUEUE_LENGTH);
 
 	WIFI_Connect(wifi_ssid, wifi_password, wifiConnectCb);
 }
