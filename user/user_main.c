@@ -22,6 +22,7 @@
 struct espconn *udp_server;
 
 const int dmx_tx_pin = 2;
+const uint16_t dmx_refresh_delay = 10;
 
 volatile uint8_t update_scheduled = 0;
 os_event_t dmx_task_queue[DMX_TASK_QUEUE_LENGTH];
@@ -41,10 +42,10 @@ void ICACHE_FLASH_ATTR udpserver_recv(void *arg, char *data, unsigned short len)
 		twinkl_process_message((struct twinkl_message *) data);
 		INFO("Twinkl message has been processed\n");
 
-/*		if(!update_scheduled) {
+		if(!update_scheduled) {
 			update_scheduled = 1;
 			system_os_post(DMX_TASK_PRIO, 0, 0);	
-		}*/
+		}
 	}
 
 }
@@ -80,8 +81,6 @@ void ICACHE_FLASH_ATTR dmx_task(os_event_t *events) {
 
 	//INFO("Sending DMX channels\n");
 
-	//ets_intr_lock();
-
 	//Space for break
 	PIN_FUNC_SELECT(pin_mux[dmx_tx_pin], FUNC_GPIO2);	
 	gpio_output_set(0, BIT2, BIT2, 0); 
@@ -95,16 +94,13 @@ void ICACHE_FLASH_ATTR dmx_task(os_event_t *events) {
 	//Do not touch.
 	PIN_FUNC_SELECT(pin_mux[dmx_tx_pin], FUNC_U1TXD_BK);	
 	uart_tx_one_char(1, 0);
-	//PIN_FUNC_SELECT(pin_mux[dmx_tx_pin], FUNC_U1TXD_BK);
 
 	for(i = 0; i < TWINKL_CHANNEL_COUNT; i++) {
 		uart_tx_one_char(1, dmx_channels[i]);
 	}
 
-	//ets_intr_unlock();
-
 	//INFO("Done sending DMX channels\n");
-	os_timer_arm(&dmx_update_timer, 40, 0);
+	os_timer_arm(&dmx_update_timer, dmx_refresh_delay, 0);
 }
 
 
@@ -128,7 +124,7 @@ void user_init(void) {
 
 	os_timer_disarm(&dmx_update_timer);
 	os_timer_setfn(&dmx_update_timer, (os_timer_func_t *)dmx_update, NULL);
-	os_timer_arm(&dmx_update_timer, 40, 0);
+	os_timer_arm(&dmx_update_timer, dmx_refresh_delay, 0);
 
 	system_os_task(dmx_task, DMX_TASK_PRIO, dmx_task_queue, DMX_TASK_QUEUE_LENGTH);
 
