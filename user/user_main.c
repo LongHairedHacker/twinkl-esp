@@ -22,9 +22,8 @@
 struct espconn *udp_server;
 
 const int dmx_tx_pin = 2;
-const uint16_t dmx_refresh_delay = 10;
+const uint16_t dmx_refresh_delay = 15;
 
-volatile uint8_t update_scheduled = 0;
 os_event_t dmx_task_queue[DMX_TASK_QUEUE_LENGTH];
 os_timer_t dmx_update_timer;
 
@@ -41,15 +40,9 @@ void ICACHE_FLASH_ATTR udpserver_recv(void *arg, char *data, unsigned short len)
 		INFO("Data has the size of a twinkl message\n");
 		twinkl_process_message((struct twinkl_message *) data);
 		INFO("Twinkl message has been processed\n");
-
-		if(!update_scheduled) {
-			update_scheduled = 1;
-			system_os_post(DMX_TASK_PRIO, 0, 0);	
-		}
 	}
 
 }
-
 
 void ICACHE_FLASH_ATTR wifiConnectCb(uint8_t status) {
 	if(status == STATION_GOT_IP){
@@ -61,6 +54,8 @@ void ICACHE_FLASH_ATTR wifiConnectCb(uint8_t status) {
 		espconn_regist_recvcb(udp_server, udpserver_recv);
 
 		espconn_create(udp_server);
+
+		system_os_post(DMX_TASK_PRIO, 0, 0);
 	}
 	else if(udp_server != NULL) {
 		espconn_delete(udp_server);
@@ -68,11 +63,12 @@ void ICACHE_FLASH_ATTR wifiConnectCb(uint8_t status) {
 		udp_server = NULL;
 	}
 }
-
+void dmx_update(void *arg) {
+	system_os_post(DMX_TASK_PRIO, 0, 0);
+}
 
 void ICACHE_FLASH_ATTR dmx_task(os_event_t *events) {
 	int i;
-	update_scheduled = 0;
 	
 	if(twinkl_has_changes()) {
 		INFO("Updating DMX channels\n");
@@ -100,14 +96,8 @@ void ICACHE_FLASH_ATTR dmx_task(os_event_t *events) {
 	}
 
 	//INFO("Done sending DMX channels\n");
-	os_timer_arm(&dmx_update_timer, dmx_refresh_delay, 0);
-}
-
-
-void dmx_update(void *arg) {
-	if(!update_scheduled) {
-		update_scheduled = 1;
-		system_os_post(DMX_TASK_PRIO, 0, 0);
+	if(udp_server != NULL) {
+		os_timer_arm(&dmx_update_timer, dmx_refresh_delay, 0);
 	}
 }
 
@@ -115,7 +105,6 @@ void user_init(void) {
 	uart_init(BIT_RATE_115200, BIT_RATE_250000);
 	os_delay_us(1000000);
 
-	update_scheduled = 0;
 	memset(dmx_channels, 127, TWINKL_CHANNEL_COUNT);
 
 	gpio_init();
@@ -124,7 +113,6 @@ void user_init(void) {
 
 	os_timer_disarm(&dmx_update_timer);
 	os_timer_setfn(&dmx_update_timer, (os_timer_func_t *)dmx_update, NULL);
-	os_timer_arm(&dmx_update_timer, dmx_refresh_delay, 0);
 
 	system_os_task(dmx_task, DMX_TASK_PRIO, dmx_task_queue, DMX_TASK_QUEUE_LENGTH);
 
